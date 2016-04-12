@@ -88,6 +88,7 @@ class ShowdownClient(object):
         mute = self.selector('input[name="muted"]')
         mute.click()
 
+        sound_options = self.selector('[name="openSounds"]')
         sound_options.click()
 
     def wait(self, selector, time):
