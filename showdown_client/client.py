@@ -1,9 +1,9 @@
 import re
+import logging
 
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
@@ -71,9 +71,10 @@ class ShowdownClient(object):
 
 
         if self.browser == 'firefox':
-            self.capabilities = DesiredCapabilities.FIREFOX
-            self.capabilities['loggingPrefs'] = {'browser': 'ALL'}
-            self.driver = webdriver.Firefox(capabilities=self.capabilities)
+            self.driver = webdriver.Firefox()
+        elif self.browser == 'phantomjs':
+            self.driver = webdriver.PhantomJS()
+            self.driver.set_window_size(1920, 1080)
 
     def get_state(self):
         return self.state
@@ -82,6 +83,7 @@ class ShowdownClient(object):
         self.state = state
 
     def mute(self):
+        logging.info("Muting sound...")
         sound_options = self.selector('[name="openSounds"]')
         sound_options.click()
 
@@ -90,6 +92,16 @@ class ShowdownClient(object):
 
         sound_options = self.selector('[name="openSounds"]')
         sound_options.click()
+
+    @require_state(['battle_main', 'start_battle'])
+    def chat(self, text):
+        logging.info("Sending chat: %s" % text)
+        chatbox = self.selector('form.chatbox')
+        textbox = self.selectors('textarea', chatbox)[1]
+        textbox.send_keys(text, Keys.ENTER)
+
+    def screenshot(self, location):
+        self.driver.save_screenshot(location)
 
     def wait(self, selector, time):
         wait = WebDriverWait(self.driver, time)
@@ -115,15 +127,18 @@ class ShowdownClient(object):
 
     @state(None, 'homepage')
     def start(self):
+        logging.info("Starting driver...")
         self.driver.get(self.start_url)
         self.driver.execute_script("localStorage.clear();")
 
     @state(None, 'stopped')
     def stop(self):
+        logging.info("Stopping driver...")
         self.driver.quit()
 
     @state(None, 'homepage')
     def home(self):
+        logging.info("Going to home page...")
         home_button = self.selector('[href="/"].button.roomtab')
         home_button.click()
 
@@ -131,6 +146,7 @@ class ShowdownClient(object):
     def choose_name(self, username=None, password=None):
         username = username or self.username
         password = password or self.password
+        logging.info("Logging in as %s..." % username)
         choose_button = self.wait('button[name="login"]', 3)
         choose_button.click()
 
@@ -153,11 +169,13 @@ class ShowdownClient(object):
 
     @state(['homepage'], 'teambuilder')
     def teambuilder(self):
+        logging.info("Going to Team Builder...")
         button = self.selector('button[value="teambuilder"].button')
         button.click()
 
     @state(['teambuilder'], 'teambuilder')
     def create_team(self, text, name=None):
+        logging.info("Creating team...")
         new_team_button = self.selector('button[name="newTop"].button')
         new_team_button.click()
 
@@ -182,6 +200,7 @@ class ShowdownClient(object):
 
     @state(['homepage'], 'homepage')
     def select_battle_format(self, tier='ou'):
+        logging.info("Selecting battle tier...")
         add_button = self.selector('button[name="showSearchGroup"]')
         if add_button is not None:
             try:
@@ -199,26 +218,22 @@ class ShowdownClient(object):
 
         popup = self.selector('.ps-popup')
 
-        tier_list = self.selectors('ul', popup)
-        for ul in tier_list:
-            lis = self.selectors('li', ul)
-            for li in lis:
-                if tier.lower() == li.text.lower():
-                    li.click()
-                    return
-        format_dropdown.click()
+        button = self.selector('button[name="selectFormat"][value="%s"]' % tier, popup)
+        if button is not None:
+            button.click()
+        else:
+            format_dropdown.click()
 
 
     @state(['teambuilder'], 'teambuilder')
     def select_team_format(self, tier='ou'):
+        logging.info("Selecting team tier...")
         self.select_format(tier, team=True)
 
     @require_state(['start_battle', 'battle_main'])
     def get_legal_actions(self):
-        gamestate = self.get_gamestate()
         actions = []
         battle = self.selector('.battle-controls')
-        my_team = gamestate.get_team(0)
 
         move_menu = self.selector('.movemenu', battle)
         if move_menu is not None:
@@ -281,6 +296,7 @@ class ShowdownClient(object):
 
     @state(['homepage'], 'homepage')
     def play(self, n_iters):
+        logging.info("Playing %u battles..." % n_iters)
         for i in xrange(n_iters):
             self.battle()
 
@@ -369,6 +385,7 @@ class ShowdownClient(object):
 
     @state(['homepage'], 'homepage')
     def battle(self):
+        logging.info("Searching for battle...")
         add_button = self.selector('button[name="showSearchGroup"]')
         if add_button is not None:
             try:
@@ -378,8 +395,9 @@ class ShowdownClient(object):
         search_button = self.wait('button[name="search"]', 5)
         search_button.click()
         battle_controls = self.wait('.battle-controls', 60)
-        print "Battle started: ", self.driver.current_url
+        logging.info("Battle started: %s" % self.driver.current_url)
         self.set_state('start_battle')
+        self.chat('gl hf')
         what_do = self.selector('.whatdo', battle_controls)
         if what_do is not None and what_do.text == 'How will you start the battle?':
             self.select_initial()
@@ -394,9 +412,10 @@ class ShowdownClient(object):
                 save_replay = self.selector('button[name="saveReplay"]')
             if save_replay is None:
                 self.make_action()
-        print "Game over!"
+        self.chat('gg')
         save_replay = self.selector('button[name="saveReplay"]')
         save_replay.click()
+        logging.info("Battle complete! Saving replay...")
         overlay = self.wait('.ps-overlay', 60)
         close_button = self.selector('button[name="close"]', overlay)
         close_button.click()
